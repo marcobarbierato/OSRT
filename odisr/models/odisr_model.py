@@ -1,6 +1,7 @@
 import torch
 from collections import OrderedDict
 from os import path as osp
+import math
 from tqdm import tqdm
 
 from basicsr.archs import build_network
@@ -28,7 +29,7 @@ class ODISRModel(BaseModel):
         if load_path is not None:
             param_key = self.opt['path'].get('param_key_g', 'params')
             self.load_network(self.net_g, load_path, self.opt['path'].get('strict_load_g', True), param_key)
-
+        self.scale = self.opt['scale']
         if self.is_train:
             self.init_training_settings()
 
@@ -138,6 +139,7 @@ class ODISRModel(BaseModel):
         if w % window_size != 0:
             mod_pad_w = window_size - w % window_size
         img = F.pad(self.lq, (0, mod_pad_w, 0, mod_pad_h), 'reflect')
+        self.condition = F.pad(self.condition, (0, mod_pad_w, 0, mod_pad_h), 'reflect') #only works when testing low res
         if hasattr(self, 'net_g_ema'):
             self.net_g_ema.eval()
             with torch.no_grad():
@@ -156,6 +158,7 @@ class ODISRModel(BaseModel):
         Finally, all the processed tiles are merged into one images.
         Modified from: https://github.com/ata4/esrgan-launcher
         """
+        self.img=self.lq
         batch, channel, height, width = self.img.shape
         output_height = height * self.scale
         output_width = width * self.scale
@@ -195,11 +198,11 @@ class ODISRModel(BaseModel):
                     if hasattr(self, 'net_g_ema'):
                         self.net_g_ema.eval()
                         with torch.no_grad():
-                            output_tile = self.net_g_ema(input_tile)
+                            output_tile = self.net_g_ema(input_tile,self.condition)
                     else:
                         self.net_g.eval()
                         with torch.no_grad():
-                            output_tile = self.net_g(input_tile)
+                            output_tile = self.net_g(input_tile,self.condition)
                 except RuntimeError as error:
                     print('Error', error)
                 print(f'\tTile {tile_idx}/{tiles_x * tiles_y}')
